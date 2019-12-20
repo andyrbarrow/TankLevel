@@ -38,7 +38,7 @@ void clearscreen();
 void testUDP();
 void sendSigK(String sigKey, float data);
 void reader();
-void drawscale();
+void drawscale(float scaleLevel, float level);
 
 void setup_wifi() {
   delay(10);
@@ -115,14 +115,29 @@ void setup(void) {
   M5.begin();
   Serial.begin(115200);
   M5.Lcd.setRotation(1);
+  //prep the onboard led, then turn it off
+  pinMode(10, OUTPUT);
+  digitalWrite(10, HIGH);
   setup_wifi();
   Serial.println("Setup Complete");
 }
-void drawscale() {
+
+void drawscale(float scaleLevel, float level) {
   M5.Lcd.setRotation(4);
   M5.Lcd.fillRect(0,2,80,80,GREEN);
   M5.Lcd.fillRect(0,120,80,40,RED);
   M5.Lcd.fillRect(0,80,80,40,YELLOW);
+  if ((int)scaleLevel < 150){
+    M5.Lcd.fillRect(0,2,80,(int)scaleLevel,BLACK);
+  }
+  else {
+    M5.Lcd.fillRect(0,2,80,(int)scaleLevel,RED);
+  }
+  M5.Lcd.setTextColor(WHITE);
+  M5.Lcd.setTextSize(3);
+  M5.Lcd.setCursor(6,4);
+  M5.Lcd.print((int)level);
+  M5.Lcd.print("%");
 }
 
 void reader() {
@@ -132,7 +147,6 @@ void reader() {
     level = ((float)raw / 1712) * 100;
     if ((raw/10) != (rawOld/10)) {
       rawOld = raw;
-      drawscale();
       Serial.print(raw);
       Serial.print(" ");
       Serial.println(rawOld);
@@ -141,20 +155,20 @@ void reader() {
       Serial.println(meterLevel);
       //If the level is zero, the screen will be completely black. We want to know
       //if we are actually at zero, so we'll turn the screen completely red
-      if ((int)meterLevel < 157){
-        M5.Lcd.fillRect(0,2,80,(int)meterLevel,BLACK);
+      if (level >= 100){
+        level = 100;
+        //turn on the led to show 100% full
+        digitalWrite(10, LOW);
       }
       else {
-        M5.Lcd.fillRect(0,2,80,(int)meterLevel,RED);
+        digitalWrite(10, HIGH);
       }
+      drawscale(meterLevel, level);
       Serial.println((int)level);
     }
     //little kludge to prevent temp and resistor variaions from making
     //level greater than 100%
-    if (level > 100){
-      level = 100;
-    }
-    sendSigK(sensorKey, level/100);
+    sendSigK(sensorKey, level/100); //send percent level via UDP
 }
 
 void loop(void) {
