@@ -15,13 +15,15 @@ GPL License applies
 #include <esp_adc_cal.h>
 
 #define ADC_INPUT 36 //pin 36
+#define BEEPER 26 //pin 26
+#define INTERNAL_LED 10 //internal led
 #define SAMPLES 1000 //sample every second
 
 esp_adc_cal_characteristics_t *adc_chars = new esp_adc_cal_characteristics_t;
 
 WiFiUDP udp;
 
-const char* ssid = "openplotter";
+const char* ssid = "CASANET";
 const char* password = "margaritaville";
 IPAddress sigkserverip(10,10,10,1);
 uint16_t sigkserverport = 55561;
@@ -39,6 +41,7 @@ void testUDP();
 void sendSigK(String sigKey, float data);
 void reader();
 void drawscale(float scaleLevel, float level);
+int adjustLevel(int currentLevel);
 
 void setup_wifi() {
   delay(10);
@@ -111,14 +114,51 @@ void sendSigK(String sigKey, float data)
  }
 }
 
+// Kludge to adjust for level guage that is non-linear
+int adjustLevel(int currentLevel) {
+  int newLevel;
+  if (currentLevel < 15)
+    newLevel = 0;
+  else if (currentLevel < 35)
+    newLevel = 5;
+  else if (currentLevel < 50)
+    newLevel = 15;
+  else if (currentLevel < 58)
+    newLevel = 23;
+  else if (currentLevel < 68)
+    newLevel = 30;
+  else if (currentLevel < 78)
+    newLevel = 45;
+  else if (currentLevel < 85)
+    newLevel = 60;
+  else if (currentLevel < 90)
+    newLevel = 70;
+  else if (currentLevel < 94)
+    newLevel = 78;
+  else if (currentLevel < 98)
+    newLevel = 85;
+  else
+    newLevel = 100;
+ 
+  return newLevel;
+}
+
 void setup(void) {
   M5.begin();
   Serial.begin(115200);
+  while (!Serial) continue;
   M5.Lcd.setRotation(1);
   //prep the onboard led, then turn it off
-  pinMode(10, OUTPUT);
-  digitalWrite(10, HIGH);
+  pinMode(INTERNAL_LED, OUTPUT);
+  digitalWrite(INTERNAL_LED, HIGH);
+  //test sounder
+  pinMode(BEEPER, OUTPUT);
+  digitalWrite(BEEPER, LOW);
   setup_wifi();
+  //sound beeper when wifi connects
+  digitalWrite(BEEPER, HIGH);
+  delay(500);
+  digitalWrite(BEEPER, LOW);
   Serial.println("Setup Complete");
 }
 
@@ -141,10 +181,20 @@ void drawscale(float scaleLevel, float level) {
 }
 
 void reader() {
+    // Read the level
+    // at the board, 0% full is 3.23V. 100% full is 1.72V
+    // analog output 100% = 1969 (round to 1970) 0% = 4095
+    // 3.3V--(level sensor 185 to 0 ohms)--GPIO36(ADC_INPUT)--/\/\/\/\(220ohms)--GND
+    // 
     float level = 0;
     float meterLevel = 0;
     raw = analogRead(ADC_INPUT);
-    level = ((float)raw / 1712) * 100;
+    Serial.print("analog read: ");
+    Serial.println(raw);
+    //level = ((float)raw / 1712) * 100;
+    level = (1 - (((float)raw - 1970) / 2125)) * 100;
+    // Adjust for non-linear guage
+    level = adjustLevel(level);
     if ((raw/10) != (rawOld/10)) {
       rawOld = raw;
       Serial.print(raw);
@@ -158,10 +208,12 @@ void reader() {
       if (level >= 100){
         level = 100;
         //turn on the led to show 100% full
-        digitalWrite(10, LOW);
+        digitalWrite(INTERNAL_LED, LOW);
+        digitalWrite(BEEPER, HIGH);
       }
       else {
-        digitalWrite(10, HIGH);
+        digitalWrite(INTERNAL_LED, HIGH);
+        digitalWrite(BEEPER, LOW);
       }
       drawscale(meterLevel, level);
       Serial.println((int)level);
